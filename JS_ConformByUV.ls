@@ -1,6 +1,6 @@
 /* ******************************
  * Modeler LScript: Conform By UV
- * Version: 0.7
+ * Version: 0.8
  * Author: Johan Steen
  * Date: 15 Mar 2010
  * Modified: 15 Mar 2010
@@ -15,7 +15,7 @@
 @name "JS_ConformByUV"
 
 // Main Variables
-cbuv_version = "0.7";
+cbuv_version = "0.8";
 cbuv_date = "15 March 2010";
 
 // GUI Settings
@@ -23,6 +23,7 @@ var tolerance = 0.02;
 var subdivideUV = false;
 var operationMode = 1;	// 1 = normal, 2 = Cleanup UV, 3 = Morph Batch
 var unweldBG = false;
+var unweldFG = false;
 var morphPrefix = "Morph_";
 
 // Misc
@@ -69,7 +70,7 @@ main
 	if (globalPntCnt != iTotFGPnts) {
 		storeSelPnts();
 	}
-	
+
 	// Switch to BG
     lyrsetfg(bg);
 	// Get number of points in BG layer
@@ -91,55 +92,50 @@ main
 	if (mainWin == false)
 		return;
 
-	// Switch to BG again
-    lyrsetfg(bg);
-	// Unweld the background
-	if (unweldBG == true) {
-		unweld();
-		iTotBGPnts = pointcount();
-	}
-	// Unweld and subdivide the background
-	if (subdivideUV == true) {
-		unweld();
-		subdivide(FLAT);
-		iTotBGPnts = pointcount();
-	}
-
     undogroupbegin();
 
+	// Unweld the FG
+	if (unweldFG == true && operationMode == 2) 
+		unweld();
+		
+	// Switch to BG again
+    lyrsetfg(bg);
 
+	// If in morph mode, loop through all selected bg layers and perform the operation
 	if (operationMode == 3) {
-		// editbegin();
-		// morphMap = VMap(VMMORPH, morphPrefix + "basetemp", 3);
-		// foreach(p,points){
-			// val = @p.x, p.y, p.z@;
-			// morphMap.setValue(p,val);
-		// }
-		// editend();
 		var aBG = bg;
 		for (i = 1; i <= aBG.size(); i++) {
 			bg = aBG[i];
 			lyrsetfg(bg);
-			mupp();
+			findMatches();
 		}
 	} else {
-		mupp();
+		// Unweld the background
+		if (unweldBG == true) {
+			unweld();
+			iTotBGPnts = pointcount();
+		}
+		// Unweld and subdivide the background
+		if (subdivideUV == true) {
+			unweld();
+			subdivide(FLAT);
+			iTotBGPnts = pointcount();
+		}
+		findMatches();
 	}
 	
-	
-	// Merge the FG if UV cleanup
-	if (operationMode == 2) 
+	// Merge the FG
+	if (unweldFG == true && operationMode == 2) 
 		mergepoints(0);
-	
 	// Open the result window
-	openResultWin();
-
+	if (operationMode != 3) {
+		openResultWin();
+	}
     undogroupend();
 }
 
-var oldie;
-var current;
-mupp {
+// Finds the matching UV coordinates and performed the desired operation
+findMatches {
 	// Initialize the progress bar (iTotBGPnts for looping the BG array + iTotFGPnts when looping though the FG points )
     moninit((iTotBGPnts + 1) + iTotFGPnts);
 	// Get all info from bg layer
@@ -154,12 +150,6 @@ mupp {
 	// If aborted during getBGInfo, exit
     if(abort) return;
 
-
-	
-	// Unweld the FG if UV cleanup
-	if (operationMode == 2) 
-		unweld();
-	
     //
     // Start moving the points in the foreground
     // --------------------------------------------------------------------------------
@@ -169,12 +159,12 @@ mupp {
 	}
     editbegin();
 	
+	// Setup vertex maps for the morph mode
 	if (operationMode == 3) {
 		if (morphCtr > 1)
 			oldie = morphMap.name;
 		morphMap = VMap(VMMORPH,morphPrefix + morphCtr.asStr(), 3);
 		current = morphMap.name;
-//		info (current);
 		morphCtr++;
 	}
 
@@ -193,18 +183,21 @@ mupp {
 			var matchPnt = nil;					
 			// Loop through all BG UV coords
 			for (i=1; i <= iTotBGPnts; i++) {
-				// Get the distance between the FG and BG UV coord vectors
-				var getDist = vmag(uvVec - aBGPntData[i,4]);
-				// If perfect match is found
-				if (getDist == 0) {
-					// match immediately and break the for loop
-					matchPnt = i;
-					break;
-				}
-				// Check if distance is smaller than current best match, and that distance is within the tolerance
-				if (getDist < bestMatch && getDist < tolerance) {
-					bestMatch = getDist;
-					matchPnt = i;
+				// Skip if BG pnt already has been used
+				if (aBGPntData[i] != nil) {
+					// Get the distance between the FG and BG UV coord vectors
+					var getDist = vmag(uvVec - aBGPntData[i,4]);
+					// If perfect match is found
+					if (getDist == 0) {
+						// match immediately and break the for loop
+						matchPnt = i;
+						break;
+					}
+					// Check if distance is smaller than current best match, and that distance is within the tolerance
+					if (getDist < bestMatch && getDist < tolerance) {
+						bestMatch = getDist;
+						matchPnt = i;
+					}
 				}
 			}
 			
@@ -347,31 +340,40 @@ getSelPnts
 openMainWin
 {
     reqbegin("Conform By UV v" + cbuv_version);
-    reqsize(340,190);               // Width, Height
+    reqsize(340,246);               // Width, Height
+
     ctlTol = ctlnumber("Tolerance", tolerance);
-    ctlposition(ctlTol,28,20, 126);
-
-    ctlMode = ctlchoice("Mode:", 1, @ "Normal","Cleanup UV","Morph Batch" @, false);
-    ctlposition(ctlMode,14,50);
-
-    ctlUnweld = ctlcheckbox("Unweld BG UV Data", unweldBG);
-    ctlposition(ctlUnweld,14,80);
-
-    ctlSubD = ctlcheckbox("Subdivide BG UV Data", subdivideUV);
-    ctlposition(ctlSubD,14,100);
+    ctlMode = ctlpopup("Mode", 1, @ "Normal","Cleanup UV","Morph Batch" @);
+    ctlUnweldBG = ctlcheckbox("Unweld BG Data", unweldBG);
+    ctlSubD = ctlcheckbox("Subdivide BG Data", subdivideUV);
+    ctlUnweldFG = ctlcheckbox("Unweld & Merge FG", unweldFG);
+	ctlMorphPfx = ctlstring("Morph Prefix: ", morphPrefix, 156);
+    ctlAbout = ctlbutton("About the Plugin", 73, "openAboutWin");
 	
-	ctlMorphPfx = ctlstring("Morph Prefix: ", morphPrefix);
-    ctlposition(ctlMorphPfx,14,120);
-	
+	ctlSep1 = ctlsep();
+	ctlSep2 = ctlsep();
+	ctlSep3 = ctlsep();
 
+    ctlposition(ctlMode,93,10);
+    ctlposition(ctlTol, 72, 32, 204);
+	ctlposition(ctlSep1, 0, 60);
+    ctlposition(ctlUnweldBG, 126, 68, 150);
+    ctlposition(ctlSubD, 126, 90, 150);
+    ctlposition(ctlUnweldFG, 126, 112, 150);
+	ctlposition(ctlSep2, 0, 140);
+    ctlposition(ctlMorphPfx, 55, 148);
+	ctlposition(ctlSep3, 0, 176);
+	ctlposition(ctlAbout, 126, 184, 150);
 	
     if (!reqpost())
 		return false;
 		
     tolerance = getvalue(ctlTol);
-    subdivideUV = getvalue(ctlSubD);
 	operationMode = getvalue(ctlMode);
-	unweldBG = getvalue(ctlUnweld);
+	unweldBG = getvalue(ctlUnweldBG);
+    subdivideUV = getvalue(ctlSubD);
+	unweldFG = getvalue(ctlUnweldFG);
+	morphPrefix = getvalue(ctlMorphPfx);
 
     reqend();
 	return true;
@@ -426,4 +428,23 @@ openResultWin
 // About Window
 openAboutWin
 {
+	reqbegin("About Conform By UV");
+	reqsize(300,190);
+
+	// ctlLogo = ctlimage("E:/Coding/LightWave/Classic/RenderPresets/trunk/AboutLogo.tga");
+	// ctlposition(ctlLogo, 0,0);
+	
+	ctlText1 = ctltext("","Conform By UV");
+	ctlText2 = ctltext("","Version: " + cbuv_version);
+	ctlText3 = ctltext("","Build Date: " + cbuv_date);
+	ctlText4 = ctltext("","Programming by Johan Steen, http://www.artstorm.net/");
+	ctlText5 = ctltext("","Ideas and Testing by Lee Perry-Smith, http://www.ir-ltd.net/");
+	ctlposition(ctlText1, 10, 60);
+	ctlposition(ctlText2, 10, 75);
+	ctlposition(ctlText3, 10, 90);
+	ctlposition(ctlText4, 10, 115);
+	ctlposition(ctlText5, 10, 130);
+	
+	return if !reqpost();
+	reqend();
 }
