@@ -1,6 +1,6 @@
 /* ******************************
  * Modeler LScript: Conform By UV
- * Version: 0.6
+ * Version: 0.7
  * Author: Johan Steen
  * Date: 15 Mar 2010
  * Modified: 15 Mar 2010
@@ -15,18 +15,29 @@
 @name "JS_ConformByUV"
 
 // Main Variables
-cbuv_version = "0.6";
+cbuv_version = "0.7";
 cbuv_date = "15 March 2010";
 
 // GUI Settings
 var tolerance = 0.02;
 var subdivideUV = false;
 var operationMode = 1;	// 1 = normal, 2 = Cleanup UV, 3 = Morph Batch
+var unweldBG = false;
+var morphPrefix = "Morph_";
+
+// Misc
+var fg;
+var bg;
 
 // Point Variables
+var uvMap;				// Holds the selected UV map
 var iTotBGPnts;			// Integer with total number of points in BG layer
+var iTotFGPnts;			// Integer with total number of selected points in FG layer
+var globalPntCnt;		// Integer with total number of poins in FG layer
 var aBGPntData;			// Array that keeps track of all point coords and UV coords
 var selPnts;			// Array that keeps track of current user point selection
+var morphMap;
+var morphCtr = 1;
 
 // Stats Variables
 var statsNoUV = 0;
@@ -39,15 +50,15 @@ main
     // Make all preparations so the plugin finds enough data to be used.
     // --------------------------------------------------------------------------------
 	// Get selected UV Map
-    var uvMap = VMap(VMTEXTURE, 0) || error("Please select a UV map.");		// By using 0, the modeler selected UV map is acquired.
+    uvMap = VMap(VMTEXTURE, 0) || error("Please select a UV map.");		// By using 0, the modeler selected UV map is acquired.
 	// Get total number of points, not caring about selections
 	selmode(GLOBAL);
-	var globalPntCnt = pointcount();
+	globalPntCnt = pointcount();
 	//
     selmode(USER);
 	// Get the layers
-    var fg = lyrfg();
-    var bg = lyrbg();
+	fg = lyrfg();
+    bg = lyrbg();
 	// If no BG selected, exit plugin
     if(bg == nil) error("Please select a BG layer.");
 	// if FG is empty, exit plugin
@@ -82,27 +93,57 @@ main
 
 	// Switch to BG again
     lyrsetfg(bg);
-		
-
+	// Unweld the background
+	if (unweldBG == true) {
+		unweld();
+		iTotBGPnts = pointcount();
+	}
+	// Unweld and subdivide the background
 	if (subdivideUV == true) {
-		undogroupbegin();
 		unweld();
 		subdivide(FLAT);
-		mergepoints();
 		iTotBGPnts = pointcount();
-		undogroupend();
 	}
 
+    undogroupbegin();
+
+
+	if (operationMode == 3) {
+		// editbegin();
+		// morphMap = VMap(VMMORPH, morphPrefix + "basetemp", 3);
+		// foreach(p,points){
+			// val = @p.x, p.y, p.z@;
+			// morphMap.setValue(p,val);
+		// }
+		// editend();
+		var aBG = bg;
+		for (i = 1; i <= aBG.size(); i++) {
+			bg = aBG[i];
+			lyrsetfg(bg);
+			mupp();
+		}
+	} else {
+		mupp();
+	}
 	
+	
+	// Merge the FG if UV cleanup
+	if (operationMode == 2) 
+		mergepoints(0);
+	
+	// Open the result window
+	openResultWin();
+
+    undogroupend();
+}
+
+var oldie;
+var current;
+mupp {
 	// Initialize the progress bar (iTotBGPnts for looping the BG array + iTotFGPnts when looping though the FG points )
     moninit((iTotBGPnts + 1) + iTotFGPnts);
 	// Get all info from bg layer
     var abort = getBGData(uvMap);
-
-	if (subdivideUV == true) {
-		undo();
-		undo();
-	}
 
 	// Update number of BG Points (if some lacked UV coords)
 	// using iTotBGPnts on each loop later, is faster than using .size() on each iteration
@@ -112,6 +153,12 @@ main
     lyrsetbg(bg);
 	// If aborted during getBGInfo, exit
     if(abort) return;
+
+
+	
+	// Unweld the FG if UV cleanup
+	if (operationMode == 2) 
+		unweld();
 	
     //
     // Start moving the points in the foreground
@@ -120,8 +167,17 @@ main
 	if (globalPntCnt != iTotFGPnts) {
 		getSelPnts();
 	}
-    undogroupbegin();
     editbegin();
+	
+	if (operationMode == 3) {
+		if (morphCtr > 1)
+			oldie = morphMap.name;
+		morphMap = VMap(VMMORPH,morphPrefix + morphCtr.asStr(), 3);
+		current = morphMap.name;
+//		info (current);
+		morphCtr++;
+	}
+
 	// loop through all points in foreground
     var p;
     foreach(p,points){
@@ -137,22 +193,19 @@ main
 			var matchPnt = nil;					
 			// Loop through all BG UV coords
 			for (i=1; i <= iTotBGPnts; i++) {
-				// Skip if BG pnt already has been used
-//				if (aBGPntData[i,5] != true) {
-					// Get the distance between the FG and BG UV coord vectors
-					var getDist = vmag(uvVec - aBGPntData[i,4]);
-					// If perfect match is found
-					if (getDist == 0) {
-						// match immediately and break the for loop
-						matchPnt = i;
-						break;
-					}
-					// Check if distance is smaller than current best match, and that distance is within the tolerance
-					if (getDist < bestMatch && getDist < tolerance) {
-						bestMatch = getDist;
-						matchPnt = i;
-					}
-//				}
+				// Get the distance between the FG and BG UV coord vectors
+				var getDist = vmag(uvVec - aBGPntData[i,4]);
+				// If perfect match is found
+				if (getDist == 0) {
+					// match immediately and break the for loop
+					matchPnt = i;
+					break;
+				}
+				// Check if distance is smaller than current best match, and that distance is within the tolerance
+				if (getDist < bestMatch && getDist < tolerance) {
+					bestMatch = getDist;
+					matchPnt = i;
+				}
 			}
 			
 			// If a match was found, move the point into position
@@ -160,7 +213,9 @@ main
 				if (operationMode == 1) 
 					positionPnt(p, matchPnt);
 				if (operationMode == 2) 
-					positionUV(p, matchPnt, uvMap);
+					positionUV(p, matchPnt);
+				if (operationMode == 3) 
+					positionMorph(p, matchPnt);
 			} else {
 				// if no match was found, add the unmatched point to the stats array
 				statsUnMatched += p;
@@ -175,12 +230,8 @@ main
     }
     monend();
     editend();
-	
-	// Open the result window
-	openResultWin();
-
-    undogroupend();
 }
+
 
 // Moves points, for normal mode
 positionPnt: p, matchPnt {
@@ -191,26 +242,38 @@ positionPnt: p, matchPnt {
 	p.y = aBGPntData[matchPnt,2];
 	p.z = aBGPntData[matchPnt,3];
 	aBGPntData[matchPnt,5] = true;
-	// And clear the point to mark it as used
-//	aBGPntData[matchPnt] = nil;
-	// Compress the array and decrease number of BG points
-//	aBGPntData.pack();
-//	aBGPntData.trunc();
-//	iTotBGPnts--;
 }
 
 // Moves UV coordinates for Cleanup mode
-positionUV: p, matchPnt, uvMap {
+positionUV: p, matchPnt {
 	var thisUV = aBGPntData[matchPnt,4];
 	uv[1] = thisUV.x; uv[2] = thisUV.y;
 	uvMap.setValue(p,uv);
-	// Compress the array and decrease number of BG points
-//	aBGPntData.pack();
-//	aBGPntData.trunc();
-//	iTotBGPnts--;
 }
 
-
+positionMorph: p, matchPnt {
+	if (morphCtr > 2) {
+		var oldMap = VMap(VMMORPH, morphPrefix + (morphCtr - 2).asStr());
+		if(oldMap.isMapped(p)) {
+			valold = oldMap.getValue(p);
+			morphMap = VMap(VMMORPH,morphPrefix + (morphCtr - 1).asStr(), 3);
+			val[1] = aBGPntData[matchPnt,1] + valold[1] - p.x;
+			val[2] = aBGPntData[matchPnt,2] + valold[2] - p.y;
+			val[3] = aBGPntData[matchPnt,3] + valold[3] - p.z;
+		} else {
+			if (morphCtr == 3) {
+				val[1] = aBGPntData[matchPnt,1] - p.x;
+				val[2] = aBGPntData[matchPnt,2] - p.y;
+				val[3] = aBGPntData[matchPnt,3] - p.z;
+			}
+		}
+	} else {
+		val[1] = aBGPntData[matchPnt,1] - p.x;
+		val[2] = aBGPntData[matchPnt,2] - p.y;
+		val[3] = aBGPntData[matchPnt,3] - p.z;
+	}
+	morphMap.setValue(p,val);
+}
 
 /*
  * Function to loop through the BG points and build an array of all x,y,z,uv coordinates
@@ -219,6 +282,7 @@ positionUV: p, matchPnt, uvMap {
  */
 getBGData: uvMap
 {
+	aBGPntData = nil;
     editbegin();
     var i = 1;
     foreach(p, points)
@@ -283,23 +347,31 @@ getSelPnts
 openMainWin
 {
     reqbegin("Conform By UV v" + cbuv_version);
-    reqsize(340,150);               // Width, Height
-    c1 = ctlnumber("Tolerance", tolerance);
-    ctlposition(c1,28,20, 126);
+    reqsize(340,190);               // Width, Height
+    ctlTol = ctlnumber("Tolerance", tolerance);
+    ctlposition(ctlTol,28,20, 126);
 
-    c3 = ctlchoice("Mode:", 1, @ "Normal","Cleanup UV","Morph Batch" @, false);
-    ctlposition(c3,14,50);
+    ctlMode = ctlchoice("Mode:", 1, @ "Normal","Cleanup UV","Morph Batch" @, false);
+    ctlposition(ctlMode,14,50);
 
-    c2 = ctlcheckbox("Subdivide BG UV Data (experimental)", subdivideUV);
-    ctlposition(c2,14,80);
+    ctlUnweld = ctlcheckbox("Unweld BG UV Data", unweldBG);
+    ctlposition(ctlUnweld,14,80);
+
+    ctlSubD = ctlcheckbox("Subdivide BG UV Data", subdivideUV);
+    ctlposition(ctlSubD,14,100);
 	
+	ctlMorphPfx = ctlstring("Morph Prefix: ", morphPrefix);
+    ctlposition(ctlMorphPfx,14,120);
+	
+
 	
     if (!reqpost())
 		return false;
 		
-    tolerance = getvalue(c1);
-    subdivideUV = getvalue(c2);
-	operationMode = getvalue(c3);
+    tolerance = getvalue(ctlTol);
+    subdivideUV = getvalue(ctlSubD);
+	operationMode = getvalue(ctlMode);
+	unweldBG = getvalue(ctlUnweld);
 
     reqend();
 	return true;
@@ -308,24 +380,36 @@ openMainWin
 // Result Window
 openResultWin
 {
-    reqbegin("ConformByUV");
+    reqbegin("Conform By UV");
     reqsize(240,170);               // X,Y
 	// Add result info here
-    c2 = ctltext("","Points without UV: " + statsNoUV);
+    c2 = ctltext("","Points without UVs: " + statsNoUV);
     ctlposition(c2,10,10,200,13);
     c3 = ctltext("","Unmatched Points: " + statsUnMatched.size());
     ctlposition(c3,10,30,200,13);
     c5 = ctltext("","Overlapping Points: " + statsOverlapped.size());
     ctlposition(c5,10,50,200,13);
 
-    c4 = ctlcheckbox("Create selection set of unmatched points", false);
-    ctlposition(c4,10,76);
+    c10 = ctlcheckbox("Create selection set of unmatched points", false);
+    ctlposition(c10,10,76);
     c11 = ctlcheckbox("Create selection set of overlapping points", false);
     ctlposition(c11,10,100);
 	
-
     return if !reqpost();
 
+	// Create selection set of unmatched points
+	if (getvalue(c10) == true && statsUnMatched.size() != 0) {
+		selmode(USER);
+		editbegin();
+		selMap = VMap(VMSELECT,"UnMatched",1);
+		foreach(p,statsUnMatched)
+		{
+			selMap.setValue(p,1);
+		}
+		editend();
+	}
+
+	// Create selection set of overlapping points
 	if (getvalue(c11) == true && statsOverlapped.size() != 0) {
 		selmode(USER);
 		editbegin();
@@ -336,20 +420,6 @@ openResultWin
 		}
 		editend();
 	}
-	
-	if (statsUnMatched.size() != 0) {
-		// selmode(USER);
-		// editbegin();
-		// selMap = VMap(VMSELECT,"UnMatched",1);
-		// foreach(p,statsUnMatched)
-		// {
-			// selMap.setValue(p,1);
-		// }
-		// editend();
-	}
-
-	
-	
     reqend();
 }
 
