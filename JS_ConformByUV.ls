@@ -1,21 +1,16 @@
-/* ******************************
- * Modeler LScript: Conform By UV
- * Version: 1.1
- * Author: Johan Steen
- * Date: 16 Mar 2010
- * Modified: 26 Mar 2010
- * Description: Conforms the foreground mesh to the background by using the UV coordinates as reference.
- *
- * http://www.artstorm.net
- *
- * Revisions
- * Version 1.1 - 26 Mar 2010
- * + Added a Create Morph option for the normal mode.
- * + Implemented some logic to the gadgets in the GUI.
- * + Fixed a bug in Morph Batch mode where variation in point count could confuse the tool.
- * Version 1.0 - 16 Mar 2010
- * + Initial Release.
- * ****************************** */
+/*------------------------------------------------------------------------------
+ Modeler LScript: Conform By UV
+ Version: 1.2
+ Author: Johan Steen
+ Author URI: http://www.artstorm.net/
+ Date: 27 Oct 2010
+ Description: Conforms the foreground mesh to the background by using
+              the UV coordinates as reference.
+
+ Copyright (c) 2010, Johan Steen
+ All Rights Reserved.
+ Use is subject to license terms.
+------------------------------------------------------------------------------*/
 
 @version 2.4
 @warnings
@@ -23,8 +18,9 @@
 @name "JS_ConformByUV"
 
 // Main Variables
-cbuv_version = "1.1";
-cbuv_date = "26 March 2010";
+cbuv_version = "1.2";
+cbuv_date = "27 October 2010";
+cfg_file = getdir(SETTINGSDIR) + getsep() + "JS_ConformByUV.cfg";
 
 // GUI Settings
 var tolerance = 0.02;
@@ -100,7 +96,7 @@ main
 	// Restore layer selections
     lyrsetfg(fg);
     lyrsetbg(bg);
-	var mainWin = openMainWin();
+	var mainWin = open_main_window();
 	if (mainWin == false)
 		return;
 
@@ -387,20 +383,36 @@ getSelPnts
 }
 
 /*
- * Functions to handle the windows
- *
- * @returns     Nothing 
+ * Create and handle the main window
+ * @since		1.0
+ * @modified	1.2
+ * @returns     true/false (boolean)	true for OK and false for Cancel. 
  */
 // Main Window, Returns false for cancel
-openMainWin
+open_main_window
 {
+	load_config();
+
     reqbegin("Conform By UV v" + cbuv_version);
     reqsize(248,324 + 22);               // Width, Height
 
-	ctlLogo = ctlimage("E:/Coding/LightWave/Classic/ConformByUV/trunk/Logo.tga");
+	// Get the path to the folder of the script
+	script_path = parse(getsep(),SCRIPTID);
+	script_folder = "";
+	for(i=1; i < script_path.size(); i++)
+		script_folder += script_path[i] + getsep();
+
+	// Check so the logo exists on disk
+	logo_path = script_folder + "JS_ConformByUV.tga";
+	logo_exists = File(logo_path, "rb");
+	if (!logo_exists)
+		error ("Error: Could not find the file 'JS_ConformByUV.tga'.");
+	logo_exists.close();
+	
+	ctlLogo = ctlimage(logo_path);
 
     ctlTol = ctlnumber("Tolerance", tolerance);
-    ctlMode = ctlpopup("Mode", 1, @ "Normal","Cleanup UV","Morph Batch" @);
+    ctlMode = ctlpopup("Mode", operationMode, @ "Normal","Cleanup UV","Morph Batch" @);
     ctlUnweldBG = ctlcheckbox("Unweld BG Data", unweldBG);
     ctlSubD = ctlcheckbox("Subdivide BG Data", subdivideUV);
     ctlUnweldFG = ctlcheckbox("Unweld & Merge FG", unweldFG);
@@ -445,6 +457,8 @@ openMainWin
 	unweldFG = getvalue(ctlUnweldFG);
 	createMorph = getvalue(ctlMorphCreate);
 	morphPrefix = getvalue(ctlMorphPfx);
+	
+	save_config();
 
     reqend();
 	return true;
@@ -553,9 +567,9 @@ openAboutWin
 	url_johan = "http://www.artstorm.net/";
 	url_lee = "http://www.ir-ltd.net/";
 	url_docs = "http://www.artstorm.net/plugins/conform-by-uv/";
-	ctlurl1 = ctlbutton("Artstorm", 100, "gotoURL", "url_johan");
-	ctlurl2 = ctlbutton("Infinite Realities", 100, "gotoURL", "url_lee");
-	ctlurl3 = ctlbutton("Help", 100, "gotoURL", "url_docs");
+	ctlurl1 = ctlbutton("Artstorm", 100, "goto_url", "url_johan");
+	ctlurl2 = ctlbutton("Infinite Realities", 100, "goto_url", "url_lee");
+	ctlurl3 = ctlbutton("Help", 100, "goto_url", "url_docs");
 	ctlposition(ctlurl1, 220, 75);
 	ctlposition(ctlurl2, 220, 97);
 	ctlposition(ctlurl3, 220, 10);
@@ -582,11 +596,80 @@ infoWindow: title, message, winWidth {
 		reqend();
 }
 
-@asyncspawn
-gotoURL: url
+
+/*
+ * Load and apply the configuration file
+ * @since		1.2
+ * @returns     Nothing
+ */
+load_config
 {
-var spawnStr = "cmd.exe /C start " + url;
-url_id = spawn(spawnStr);
-if(url_id == nil)
-	info("Failed to open website " + url);
+	// Open file
+	loader = File(cfg_file, "r");
+    // Check if file was opened
+    if(loader) {
+        // Loop util eof
+        while( !loader.eof() ) {
+			parsed_line = loader.parse("\t");
+			// Apply the settings
+			if (parsed_line[1] == "tolerance") tolerance = number(parsed_line[2]);
+			if (parsed_line[1] == "operation_mode") operationMode = number(parsed_line[2]);
+			if (parsed_line[1] == "unweld_bg") unweldBG = number(parsed_line[2]);
+			if (parsed_line[1] == "subdivide_uv") subdivideUV = number(parsed_line[2]);
+			if (parsed_line[1] == "unweld_fg") unweldFG = number(parsed_line[2]);
+			if (parsed_line[1] == "create_morph") createMorph = number(parsed_line[2]);
+			if (parsed_line[1] == "morph_prefix") morphPrefix = string(parsed_line[2]);
+		}
+		
+		// Close file
+		loader.close();
+	}
+}
+
+
+/*
+ * Save the current settings to the configuration file
+ * @since		1.2
+ * @returns     Nothing
+ */
+save_config
+{
+	// Open file
+	saver = File(cfg_file, "w");
+	
+	// Check if the file was openend
+	if (saver) {
+		// Save the settings with tab separation
+		saver.writeln("tolerance", "\t", tolerance);
+		saver.writeln("operation_mode", "\t", operationMode);
+		saver.writeln("unweld_bg", "\t", unweldBG);
+		saver.writeln("subdivide_uv", "\t", subdivideUV);
+		saver.writeln("unweld_fg", "\t", unweldFG);
+		saver.writeln("create_morph", "\t", createMorph);
+		saver.writeln("morph_prefix", "\t", morphPrefix);
+	
+		// Close file
+		saver.close();
+	}
+}
+
+
+/*
+ * Opens a website in the system's browser
+ * @since		1.1
+ * @modified	1.2
+ * @param		url	(string)	URL to open
+ * @returns		Nothing
+ */
+goto_url: url
+{
+	// Query the environment for the command line interpreter
+	cmd_ln = string(getenv("comspec"));
+
+	// Spawn the process
+	spawn_id = spawn(cmd_ln, " /C start ", url);
+
+	// If the spawn was unsuccessful, notify the user
+	if (spawn_id == nil)
+		info ("Failed to open website ", url);
 }
