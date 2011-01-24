@@ -1,6 +1,6 @@
 /* ******************************
  * Modeler LScript: Conform By UV
- * Version: 0.5
+ * Version: 0.6
  * Author: Johan Steen
  * Date: 15 Mar 2010
  * Modified: 15 Mar 2010
@@ -15,51 +15,35 @@
 @name "JS_ConformByUV"
 
 // Main Variables
-cbuv_version = "0.5";
+cbuv_version = "0.6";
 cbuv_date = "15 March 2010";
 
-// global values go here
-
-reqTitle = "Fix Symmetry v1.2";
-// For Tolerance Fix
-c1,c2,c3,c4;
-totPnts = 0;
-selPnts = nil;
-toleranceDefault = 0.003;
-side2Correct = 1;
-interactiveMode = true;
-changesMade = false;        // To keep track of if an undo is necessary
-
-
-
-var pol;
-var nTri;		// tris in bg
-
-var uvInd;
-var uvMapNames = nil;
-
-// Mina
 // GUI Settings
-var tolerance = 0.05;
+var tolerance = 0.02;
 var subdivideUV = false;
+var operationMode = 1;	// 1 = normal, 2 = Cleanup UV, 3 = Morph Batch
 
-var selPnts;
-
+// Point Variables
 var iTotBGPnts;			// Integer with total number of points in BG layer
 var aBGPntData;			// Array that keeps track of all point coords and UV coords
+var selPnts;			// Array that keeps track of current user point selection
 
+// Stats Variables
 var statsNoUV = 0;
 var statsUnMatched = nil;
+var statsOverlapped = nil;
+
 main
 {
     //
     // Make all preparations so the plugin finds enough data to be used.
     // --------------------------------------------------------------------------------
+	// Get selected UV Map
     var uvMap = VMap(VMTEXTURE, 0) || error("Please select a UV map.");		// By using 0, the modeler selected UV map is acquired.
 	// Get total number of points, not caring about selections
 	selmode(GLOBAL);
 	var globalPntCnt = pointcount();
-
+	//
     selmode(USER);
 	// Get the layers
     var fg = lyrfg();
@@ -120,7 +104,6 @@ main
 		undo();
 	}
 
-	
 	// Update number of BG Points (if some lacked UV coords)
 	// using iTotBGPnts on each loop later, is faster than using .size() on each iteration
 	iTotBGPnts = aBGPntData.size();
@@ -135,9 +118,8 @@ main
     // --------------------------------------------------------------------------------
 	// If selected points differs from total points, get the selection
 	if (globalPntCnt != iTotFGPnts) {
-	getSelPnts();
+		getSelPnts();
 	}
-//	return;
     undogroupbegin();
     editbegin();
 	// loop through all points in foreground
@@ -155,9 +137,8 @@ main
 			var matchPnt = nil;					
 			// Loop through all BG UV coords
 			for (i=1; i <= iTotBGPnts; i++) {
-//			for (i=1; i <= aBGPntData.size(); i++) {
 				// Skip if BG pnt already has been used
-				if (aBGPntData[i] != nil) {
+//				if (aBGPntData[i,5] != true) {
 					// Get the distance between the FG and BG UV coord vectors
 					var getDist = vmag(uvVec - aBGPntData[i,4]);
 					// If perfect match is found
@@ -171,21 +152,15 @@ main
 						bestMatch = getDist;
 						matchPnt = i;
 					}
-				}
+//				}
 			}
 			
 			// If a match was found, move the point into position
 			if (matchPnt != nil) {
-				p.x = aBGPntData[matchPnt,1];
-				p.y = aBGPntData[matchPnt,2];
-				p.z = aBGPntData[matchPnt,3];
-				// And clear the point to mark it as used
-				aBGPntData[matchPnt] = nil;
-				
-				aBGPntData.pack();
-				aBGPntData.trunc();
-				iTotBGPnts--;
-				
+				if (operationMode == 1) 
+					positionPnt(p, matchPnt);
+				if (operationMode == 2) 
+					positionUV(p, matchPnt, uvMap);
 			} else {
 				// if no match was found, add the unmatched point to the stats array
 				statsUnMatched += p;
@@ -207,38 +182,32 @@ main
     undogroupend();
 }
 
-
-//
-// Function to store all selected Point ID's in an array
-// --------------------------------------------------------------------------------
-storeSelPnts
-{
-//    selmode(DIRECT);
-    editbegin();
-    foreach(p, points)
-    {
-        totPnts++;
-        selPnts[totPnts] = p;
-    }
-    editend();
+// Moves points, for normal mode
+positionPnt: p, matchPnt {
+	if (aBGPntData[matchPnt,5] == true) {
+				statsOverlapped += p;
+	}
+	p.x = aBGPntData[matchPnt,1];
+	p.y = aBGPntData[matchPnt,2];
+	p.z = aBGPntData[matchPnt,3];
+	aBGPntData[matchPnt,5] = true;
+	// And clear the point to mark it as used
+//	aBGPntData[matchPnt] = nil;
+	// Compress the array and decrease number of BG points
+//	aBGPntData.pack();
+//	aBGPntData.trunc();
+//	iTotBGPnts--;
 }
 
-getSelPnts
-{
-//    selmode(DIRECT);
-	selmode(USER);
-	    selpolygon(CLEAR);                  // Switch to polygon mode, to speed up drawing of point selections
-
-//    editbegin();
-//    foreach(p, selPnts)
- //   {
-//	info (p);
-//        totPnts++;
-//        selPnts[totPnts] = p;
-	selpoint(SET, POINTID, selPnts);
- //   }
-//    editend();
-    selpoint(SET,NPEQ,1000);        // Switch back to point selection mode (Dummy selection value to keep current selection)
+// Moves UV coordinates for Cleanup mode
+positionUV: p, matchPnt, uvMap {
+	var thisUV = aBGPntData[matchPnt,4];
+	uv[1] = thisUV.x; uv[2] = thisUV.y;
+	uvMap.setValue(p,uv);
+	// Compress the array and decrease number of BG points
+//	aBGPntData.pack();
+//	aBGPntData.trunc();
+//	iTotBGPnts--;
 }
 
 
@@ -271,21 +240,58 @@ getBGData: uvMap
 		aBGPntData[i,2] = p.y;
 		aBGPntData[i,3] = p.z;
 		aBGPntData[i,4] = <uv[1],uv[2],0>;
+		aBGPntData[i,5] = false;
 		i++;
     }
     editend();
     return false;
 }
 
+
+/*
+ * Functions to handle point selections
+ *
+ * @returns     Nothing 
+ */
+
+// Stores all selected Point ID's in an array
+storeSelPnts
+{
+    editbegin();
+    foreach(p, points) {
+        selPnts += p;
+    }
+    editend();
+}
+
+// Selects all points stored in the selection array
+getSelPnts
+{
+	selmode(USER);
+    selpolygon(CLEAR);                  // Switch to polygon mode, to speed up drawing of point selections
+	selpoint(SET, POINTID, selPnts);
+    selpoint(SET,NPEQ,1000);        	// Switch back to point selection mode (Dummy selection value to keep current selection)
+}
+
+/*
+ * Functions to handle the windows
+ *
+ * @returns     Nothing 
+ */
+ 
+// Main Window, Returns false for cancel
 openMainWin
 {
     reqbegin("Conform By UV v" + cbuv_version);
-    reqsize(240,130);               // X,Y
+    reqsize(340,150);               // Width, Height
     c1 = ctlnumber("Tolerance", tolerance);
     ctlposition(c1,28,20, 126);
 
+    c3 = ctlchoice("Mode:", 1, @ "Normal","Cleanup UV","Morph Batch" @, false);
+    ctlposition(c3,14,50);
+
     c2 = ctlcheckbox("Subdivide BG UV Data (experimental)", subdivideUV);
-    ctlposition(c2,14,50);
+    ctlposition(c2,14,80);
 	
 	
     if (!reqpost())
@@ -293,48 +299,61 @@ openMainWin
 		
     tolerance = getvalue(c1);
     subdivideUV = getvalue(c2);
+	operationMode = getvalue(c3);
 
     reqend();
 	return true;
 }
 
+// Result Window
 openResultWin
 {
     reqbegin("ConformByUV");
-    reqsize(240,130);               // X,Y
+    reqsize(240,170);               // X,Y
 	// Add result info here
     c2 = ctltext("","Points without UV: " + statsNoUV);
     ctlposition(c2,10,10,200,13);
     c3 = ctltext("","Unmatched Points: " + statsUnMatched.size());
     ctlposition(c3,10,30,200,13);
+    c5 = ctltext("","Overlapping Points: " + statsOverlapped.size());
+    ctlposition(c5,10,50,200,13);
+
+    c4 = ctlcheckbox("Create selection set of unmatched points", false);
+    ctlposition(c4,10,76);
+    c11 = ctlcheckbox("Create selection set of overlapping points", false);
+    ctlposition(c11,10,100);
 	
-	if (statsUnMatched.size() != 0) {
-
-	selmode(USER);
-
-	editbegin();
-		selMap = VMap(VMSELECT,"UnMatched",1);
-//		selMap.dimensions = 1;
-//		selMap.name = "johan";
-
-// clear old map
-//	foreach(p,points)
-//	{
-//	info ("loop");
-//     	selMap.setValue(p,nil);
-//	if(selMap.isMapped(p)) {
-//		info ("is mapped");
-//     	selMap.setValue(p,0);
-//		}
-//	}
-
-	foreach(p,statsUnMatched)
-	{
-     	selMap.setValue(p,1);
-	}
-		editend();
-	}
 
     return if !reqpost();
+
+	if (getvalue(c11) == true && statsOverlapped.size() != 0) {
+		selmode(USER);
+		editbegin();
+		selMap = VMap(VMSELECT,"Overlap",1);
+		foreach(p,statsOverlapped)
+		{
+			selMap.setValue(p,1);
+		}
+		editend();
+	}
+	
+	if (statsUnMatched.size() != 0) {
+		// selmode(USER);
+		// editbegin();
+		// selMap = VMap(VMSELECT,"UnMatched",1);
+		// foreach(p,statsUnMatched)
+		// {
+			// selMap.setValue(p,1);
+		// }
+		// editend();
+	}
+
+	
+	
     reqend();
+}
+
+// About Window
+openAboutWin
+{
 }
