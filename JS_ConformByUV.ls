@@ -1,12 +1,20 @@
 /* ******************************
  * Modeler LScript: Conform By UV
- * Version: 1.0
+ * Version: 1.1
  * Author: Johan Steen
  * Date: 16 Mar 2010
- * Modified: 16 Mar 2010
+ * Modified: 26 Mar 2010
  * Description: Conforms the foreground mesh to the background by using the UV coordinates as reference.
  *
  * http://www.artstorm.net
+ *
+ * Revisions
+ * Version 1.1 - 26 Mar 2010
+ * + Added a Create Morph option for the normal mode.
+ * + Implemented some logic to the gadgets in the GUI.
+ * + Fixed a bug in Morph Batch mode where variation in point count could confuse the tool.
+ * Version 1.0 - 16 Mar 2010
+ * + Initial Release.
  * ****************************** */
 
 @version 2.4
@@ -15,8 +23,8 @@
 @name "JS_ConformByUV"
 
 // Main Variables
-cbuv_version = "1.0";
-cbuv_date = "16 March 2010";
+cbuv_version = "1.1";
+cbuv_date = "26 March 2010";
 
 // GUI Settings
 var tolerance = 0.02;
@@ -24,7 +32,11 @@ var subdivideUV = false;
 var operationMode = 1;	// 1 = normal, 2 = Cleanup UV, 3 = Morph Batch
 var unweldBG = false;
 var unweldFG = false;
-var morphPrefix = "Morph_";
+var createMorph = true;
+var morphPrefix = "Morph";
+
+// GUI Gadgets
+var ctlUnweldBG, ctlSubD, ctlUnweldFG, ctlMorphCreate, ctlMorphPfx;
 
 // Misc
 var fg;
@@ -92,7 +104,21 @@ main
 	if (mainWin == false)
 		return;
 
-    undogroupbegin();
+	/* Window Closed, start the process */
+	
+	// Check so no morph is selected if morphs shall be created
+	if ((operationMode == 1 && createMorph == true) || operationMode == 3) {
+		var isMorphSelected = VMap(VMMORPH,0);
+		if (isMorphSelected) {
+			infoWindow("Error", "Please deselect any morph maps before using the plugin to Create Morphs (LScript limitation).", 460);
+			return;
+		}
+	}
+	
+	// undogroup crashes in batch mode for some reason (probably because of reset morph)
+	if (operationMode != 3) {
+		undogroupbegin();
+	}
 
 	// Unweld the FG
 	if (unweldFG == true && operationMode == 2) 
@@ -135,11 +161,18 @@ main
 	if (operationMode != 3) {
 		openResultWin();
 	}
-    undogroupend();
+	// undogroupend crashes in batch mode for some reason probably because of reset morph)
+	if (operationMode != 3) {
+		undogroupend();
+	}
 }
 
 // Finds the matching UV coordinates and performed the desired operation
 findMatches {
+	// If MorphBatch, return to base morph for each new iteration 
+	if (operationMode == 3) {
+		resetMorph();
+	}
 	// Initialize the progress bar (iTotBGPnts for looping the BG array + iTotFGPnts when looping though the FG points )
     moninit((iTotBGPnts + 1) + iTotFGPnts);
 	// Get all info from bg layer
@@ -162,6 +195,11 @@ findMatches {
 		getSelPnts();
 	}
     editbegin();
+
+	// If Create Morph is enabled in normal mode
+	if (operationMode == 1 && createMorph == true) {
+		morphMap = VMap(VMMORPH,morphPrefix, 3);
+	}
 	
 	// Setup vertex maps for the morph mode
 	if (operationMode == 3) {
@@ -207,8 +245,10 @@ findMatches {
 			
 			// If a match was found, move the point into position
 			if (matchPnt != nil) {
-				if (operationMode == 1) 
+				if (operationMode == 1 && createMorph == false) 
 					positionPnt(p, matchPnt);
+				if (operationMode == 1 && createMorph == true) 
+					positionMorph(p, matchPnt);
 				if (operationMode == 2) 
 					positionUV(p, matchPnt);
 				if (operationMode == 3) 
@@ -255,7 +295,7 @@ positionUV: p, matchPnt {
 // Moves positions into relative morphs
 positionMorph: p, matchPnt {
 	// Dirty, dirty solution, fix this.
-	if (morphCtr > 2) {
+/*	if (morphCtr > 2) {
 		var oldMap = VMap(VMMORPH, morphPrefix + (morphCtr - 2).asStr());
 		if(oldMap.isMapped(p)) {
 			valold = oldMap.getValue(p);
@@ -270,12 +310,18 @@ positionMorph: p, matchPnt {
 				val[3] = aBGPntData[matchPnt,3] - p.z;
 			}
 		}
-	} else {
+	} else { */
 		val[1] = aBGPntData[matchPnt,1] - p.x;
 		val[2] = aBGPntData[matchPnt,2] - p.y;
 		val[3] = aBGPntData[matchPnt,3] - p.z;
-	}
+//	}
 	morphMap.setValue(p,val);
+}
+
+// Resets the morph back to the base layer
+resetMorph {
+	new();
+	close();
 }
 
 /*
@@ -345,12 +391,11 @@ getSelPnts
  *
  * @returns     Nothing 
  */
- 
 // Main Window, Returns false for cancel
 openMainWin
 {
     reqbegin("Conform By UV v" + cbuv_version);
-    reqsize(248,324);               // Width, Height
+    reqsize(248,324 + 22);               // Width, Height
 
 	ctlLogo = ctlimage("E:/Coding/LightWave/Classic/ConformByUV/trunk/Logo.tga");
 
@@ -359,13 +404,15 @@ openMainWin
     ctlUnweldBG = ctlcheckbox("Unweld BG Data", unweldBG);
     ctlSubD = ctlcheckbox("Subdivide BG Data", subdivideUV);
     ctlUnweldFG = ctlcheckbox("Unweld & Merge FG", unweldFG);
-	ctlMorphPfx = ctlstring("Morph Prefix: ", morphPrefix, 156);
+    ctlMorphCreate = ctlcheckbox("Create Morph", createMorph);
+	ctlMorphPfx = ctlstring("Morph Name: ", morphPrefix, 156);
     ctlAbout = ctlbutton("About the Plugin", 73, "openAboutWin");
 	
 	ctlSep1 = ctlsep();
 	ctlSep2 = ctlsep();
 	ctlSep3 = ctlsep();
 
+	// Positions
 	ctlposition(ctlLogo, 0,0);
 	var yComp = 78;
     ctlposition(ctlMode,		53,10 + yComp);
@@ -375,9 +422,17 @@ openMainWin
     ctlposition(ctlSubD, 		86, 90 + yComp, 150);
     ctlposition(ctlUnweldFG, 	86, 112 + yComp, 150);
 	ctlposition(ctlSep2, 		0, 140 + yComp);
-    ctlposition(ctlMorphPfx, 	15, 148 + yComp);
-	ctlposition(ctlSep3, 		0, 176 + yComp);
-	ctlposition(ctlAbout, 		86, 184 + yComp, 150);
+    ctlposition(ctlMorphCreate,	86, 148 + yComp, 150);
+    ctlposition(ctlMorphPfx, 	13, 148 + 22 + yComp);
+	ctlposition(ctlSep3, 		0, 176 + 22 + yComp);
+	ctlposition(ctlAbout, 		86, 184 + 22 + yComp, 150);
+	
+	// Refresh controller on Mode Change
+	ctlrefresh(ctlMode, "refreshMainWin");
+	ctlactive(ctlMorphCreate, "toggleMorph", ctlMorphPfx);
+	
+	// Default States
+	ctlUnweldFG.active(false);
 
 	
     if (!reqpost())
@@ -388,10 +443,50 @@ openMainWin
 	unweldBG = getvalue(ctlUnweldBG);
     subdivideUV = getvalue(ctlSubD);
 	unweldFG = getvalue(ctlUnweldFG);
+	createMorph = getvalue(ctlMorphCreate);
 	morphPrefix = getvalue(ctlMorphPfx);
 
     reqend();
 	return true;
+}
+
+// Functions to refresh the main window
+toggleMorph: value
+{
+   return(value);
+}
+refreshMainWin: value
+{
+	if (value == 1) {
+		ctlMorphPfx.label = "Morph Name:";
+		setvalue(ctlMorphPfx, "Morph");
+		ctlUnweldBG.active(true);
+		ctlSubD.active(true);
+		ctlUnweldFG.active(false);
+		ctlMorphCreate.active(true);
+		if (getvalue(ctlMorphCreate) == true) {
+			ctlMorphPfx.active(true);
+		} else {
+			ctlMorphPfx.active(false);
+		}
+	}
+	if (value == 2) {
+		ctlUnweldBG.active(true);
+		ctlSubD.active(true);
+		ctlUnweldFG.active(true);
+		ctlMorphCreate.active(false);
+		ctlMorphPfx.active(false);
+	}
+	if (value == 3) {
+		ctlMorphPfx.label = "Morph Prefix:";
+		setvalue(ctlMorphPfx, "Morph_");
+		ctlUnweldBG.active(false);
+		ctlSubD.active(false);
+		ctlUnweldFG.active(false);
+		ctlMorphCreate.active(false);
+		ctlMorphPfx.active(true);
+	}
+	requpdate();
 }
 
 // Result Window
@@ -467,6 +562,24 @@ openAboutWin
 	
 	return if !reqpost();
 	reqend();
+}
+
+/*
+ * Function to popup an information window
+ * @title		The title of the window
+ * @message		The message displayed to the user
+ * @winWidth	The width of the window
+ * @returns     nothing
+ */
+infoWindow: title, message, winWidth {
+		reqbegin(title);
+		reqsize(winWidth,70);
+		
+		c0 = ctltext("",message);
+		ctlposition(c0,10,12);
+
+		return if !reqpost();
+		reqend();
 }
 
 @asyncspawn

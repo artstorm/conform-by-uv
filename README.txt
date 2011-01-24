@@ -1,4 +1,4 @@
-Conform By UV v1.0
+Conform By UV v1.1
 ==================
 LightWave Modeler LScript.
 
@@ -45,6 +45,11 @@ Contact me through http://www.artstorm.net/
 
 Changelog
 =========
+Version 1.1 - 26 Mar 2010:
+  * Added a Create Morph option for the normal mode.
+  * Implemented some logic to the gadgets in the GUI.
+  * Fixed a bug in Morph Batch mode where variation in point count could confuse the tool.
+
 Version 1.0 - 16 Mar 2010:
   * Release of version 1.0, first public release.
 
