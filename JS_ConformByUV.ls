@@ -1,9 +1,9 @@
 /* ******************************
  * Modeler LScript: Conform By UV
- * Version: 0.8
+ * Version: 1.0
  * Author: Johan Steen
- * Date: 15 Mar 2010
- * Modified: 15 Mar 2010
+ * Date: 16 Mar 2010
+ * Modified: 16 Mar 2010
  * Description: Conforms the foreground mesh to the background by using the UV coordinates as reference.
  *
  * http://www.artstorm.net
@@ -15,8 +15,8 @@
 @name "JS_ConformByUV"
 
 // Main Variables
-cbuv_version = "0.8";
-cbuv_date = "15 March 2010";
+cbuv_version = "1.0";
+cbuv_date = "16 March 2010";
 
 // GUI Settings
 var tolerance = 0.02;
@@ -107,7 +107,9 @@ main
 		for (i = 1; i <= aBG.size(); i++) {
 			bg = aBG[i];
 			lyrsetfg(bg);
-			findMatches();
+			abort = findMatches();
+			if (abort)
+				return;
 		}
 	} else {
 		// Unweld the background
@@ -121,7 +123,9 @@ main
 			subdivide(FLAT);
 			iTotBGPnts = pointcount();
 		}
-		findMatches();
+		abort = findMatches();
+		if (abort)
+			return;
 	}
 	
 	// Merge the FG
@@ -148,7 +152,7 @@ findMatches {
     lyrsetfg(fg);
     lyrsetbg(bg);
 	// If aborted during getBGInfo, exit
-    if(abort) return;
+    if(abort) return true;
 
     //
     // Start moving the points in the foreground
@@ -218,13 +222,13 @@ findMatches {
 		if(monstep()){
 			monend();
 			editend(ABORT);
-			return;
+			return true;
 		}
     }
     monend();
     editend();
+	return false;
 }
-
 
 // Moves points, for normal mode
 positionPnt: p, matchPnt {
@@ -239,12 +243,18 @@ positionPnt: p, matchPnt {
 
 // Moves UV coordinates for Cleanup mode
 positionUV: p, matchPnt {
+	if (aBGPntData[matchPnt,5] == true) {
+				statsOverlapped += p;
+	}
 	var thisUV = aBGPntData[matchPnt,4];
 	uv[1] = thisUV.x; uv[2] = thisUV.y;
 	uvMap.setValue(p,uv);
+	aBGPntData[matchPnt,5] = true;
 }
 
+// Moves positions into relative morphs
 positionMorph: p, matchPnt {
+	// Dirty, dirty solution, fix this.
 	if (morphCtr > 2) {
 		var oldMap = VMap(VMMORPH, morphPrefix + (morphCtr - 2).asStr());
 		if(oldMap.isMapped(p)) {
@@ -340,7 +350,9 @@ getSelPnts
 openMainWin
 {
     reqbegin("Conform By UV v" + cbuv_version);
-    reqsize(340,246);               // Width, Height
+    reqsize(248,324);               // Width, Height
+
+	ctlLogo = ctlimage("E:/Coding/LightWave/Classic/ConformByUV/trunk/Logo.tga");
 
     ctlTol = ctlnumber("Tolerance", tolerance);
     ctlMode = ctlpopup("Mode", 1, @ "Normal","Cleanup UV","Morph Batch" @);
@@ -354,16 +366,19 @@ openMainWin
 	ctlSep2 = ctlsep();
 	ctlSep3 = ctlsep();
 
-    ctlposition(ctlMode,93,10);
-    ctlposition(ctlTol, 72, 32, 204);
-	ctlposition(ctlSep1, 0, 60);
-    ctlposition(ctlUnweldBG, 126, 68, 150);
-    ctlposition(ctlSubD, 126, 90, 150);
-    ctlposition(ctlUnweldFG, 126, 112, 150);
-	ctlposition(ctlSep2, 0, 140);
-    ctlposition(ctlMorphPfx, 55, 148);
-	ctlposition(ctlSep3, 0, 176);
-	ctlposition(ctlAbout, 126, 184, 150);
+	ctlposition(ctlLogo, 0,0);
+	var yComp = 78;
+    ctlposition(ctlMode,		53,10 + yComp);
+    ctlposition(ctlTol,			32, 32 + yComp, 204);
+	ctlposition(ctlSep1, 		0, 60 + yComp);
+    ctlposition(ctlUnweldBG, 	86, 68 + yComp, 150);
+    ctlposition(ctlSubD, 		86, 90 + yComp, 150);
+    ctlposition(ctlUnweldFG, 	86, 112 + yComp, 150);
+	ctlposition(ctlSep2, 		0, 140 + yComp);
+    ctlposition(ctlMorphPfx, 	15, 148 + yComp);
+	ctlposition(ctlSep3, 		0, 176 + yComp);
+	ctlposition(ctlAbout, 		86, 184 + yComp, 150);
+
 	
     if (!reqpost())
 		return false;
@@ -429,22 +444,36 @@ openResultWin
 openAboutWin
 {
 	reqbegin("About Conform By UV");
-	reqsize(300,190);
+	reqsize(330,160);
 
-	// ctlLogo = ctlimage("E:/Coding/LightWave/Classic/RenderPresets/trunk/AboutLogo.tga");
-	// ctlposition(ctlLogo, 0,0);
+	ctlText1 = ctltext("","Conform By UV", "Version: " + cbuv_version, "Build Date: " + cbuv_date);
+	ctlText4 = ctltext("","Programming by Johan Steen.");
+	ctlText5 = ctltext("","Ideas, Logo & Testing by Lee Perry-Smith.");
+	ctlSep1 = ctlsep();
+	ctlposition(ctlText1, 10, 10);
+	ctlposition(ctlSep1, 0, 64);
+	ctlposition(ctlText4, 10, 78);
+	ctlposition(ctlText5, 10, 100);
 	
-	ctlText1 = ctltext("","Conform By UV");
-	ctlText2 = ctltext("","Version: " + cbuv_version);
-	ctlText3 = ctltext("","Build Date: " + cbuv_date);
-	ctlText4 = ctltext("","Programming by Johan Steen, http://www.artstorm.net/");
-	ctlText5 = ctltext("","Ideas and Testing by Lee Perry-Smith, http://www.ir-ltd.net/");
-	ctlposition(ctlText1, 10, 60);
-	ctlposition(ctlText2, 10, 75);
-	ctlposition(ctlText3, 10, 90);
-	ctlposition(ctlText4, 10, 115);
-	ctlposition(ctlText5, 10, 130);
+	url_johan = "http://www.artstorm.net/";
+	url_lee = "http://www.ir-ltd.net/";
+	url_docs = "http://www.artstorm.net/plugins/conform-by-uv/";
+	ctlurl1 = ctlbutton("Artstorm", 100, "gotoURL", "url_johan");
+	ctlurl2 = ctlbutton("Infinite Realities", 100, "gotoURL", "url_lee");
+	ctlurl3 = ctlbutton("Help", 100, "gotoURL", "url_docs");
+	ctlposition(ctlurl1, 220, 75);
+	ctlposition(ctlurl2, 220, 97);
+	ctlposition(ctlurl3, 220, 10);
 	
 	return if !reqpost();
 	reqend();
+}
+
+@asyncspawn
+gotoURL: url
+{
+var spawnStr = "cmd.exe /C start " + url;
+url_id = spawn(spawnStr);
+if(url_id == nil)
+	info("Failed to open website " + url);
 }
