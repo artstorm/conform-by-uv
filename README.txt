@@ -6,8 +6,8 @@
  layout matches.
 
  Website:      http://www.artstorm.net/plugins/conform-by-uv/
- Project:      http://code.google.com/p/js-lightwave-lscripts/
- Feeds:        http://code.google.com/p/js-lightwave-lscripts/feeds
+ Project:      http://code.google.com/p/js-lscripts/
+ Feeds:        http://code.google.com/p/js-lscripts/feeds
  
  Contents:
  
